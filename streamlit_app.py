@@ -42,7 +42,7 @@ st.subheader("📊 Ranking de la Semana")
 if not df.empty:
     df['fecha'] = pd.to_datetime(df['fecha'])
     # Calcular inicio de semana (Lunes)
-    df['Semana'] = df['Fecha'].dt.isocalendar().week
+    df['Semana'] = df['fecha'].dt.isocalendar().week
     current_week = datetime.now().isocalendar()[1]
     
     # Filtrar y Agrupar
