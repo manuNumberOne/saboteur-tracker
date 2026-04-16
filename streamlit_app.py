@@ -2,96 +2,359 @@ import streamlit as st
 from streamlit_gsheets import GSheetsConnection
 import pandas as pd
 from datetime import datetime
+import plotly.express as px
 
-st.set_page_config(page_title="Pico y Datos", page_icon="⛏️")
+# 1. Configuración de Pestaña y Estilo
+st.set_page_config(
+    page_title="Gold Tracker: La Ambición del Rey Enano",
+    page_icon="⛏️",
+    layout="wide"
+)
 
-st.title("⛏️ Pico y Datos: Saboteur Tracker")
+import base64
 
-# 1. Conexión y Limpieza de Datos
+def get_base64_of_bin_file(bin_file):
+    with open(bin_file, 'rb') as f:
+        data = f.read()
+    return base64.b64encode(data).decode()
+
+def set_png_as_page_bg(bin_file):
+    bin_str = get_base64_of_bin_file(bin_file)
+    page_bg_img = f'''
+    <style>
+    [data-testid="stAppViewContainer"] {{
+        background-image: linear-gradient(rgba(14, 17, 23, 0.8), rgba(14, 17, 23, 0.8)), url("data:image/png;base64,{bin_str}");
+        background-size: cover;
+        background-position: center center;
+        background-attachment: fixed;
+    }}
+    
+    [data-testid="stHeader"] {{
+        background: rgba(0,0,0,0);
+    }}
+    </style>
+    '''
+    st.markdown(page_bg_img, unsafe_allow_html=True)
+
+# Aplicamos el fondo épico
+try:
+    set_png_as_page_bg('banner.png')
+except:
+    pass
+
+# Inyectamos CSS para estética premium
+st.markdown("""
+    <style>
+    /* Estilo General */
+    .stApp {
+        color: #e0e0e0;
+        padding-bottom: 15vh;
+    }
+    
+    /* Encabezado */
+    .main-title {
+        font-family: 'Outfit', sans-serif;
+        font-weight: 800;
+        color: #FFD700;
+        text-align: center;
+        text-shadow: 3px 3px 6px #000000;
+        margin-bottom: 40px;
+        letter-spacing: 2px;
+    }
+    
+    /* Tarjetas de Métricas */
+    [data-testid="stMetricValue"] {
+        color: #FFD700 !important;
+        font-size: 2.5rem !important;
+        text-shadow: 1px 1px 2px #000;
+    }
+    
+    /* Botones Premium */
+    .stButton>button {
+        background-color: rgba(31, 41, 55, 0.8);
+        color: #FFD700;
+        border: 2px solid #FFD700;
+        border-radius: 12px;
+        font-weight: bold;
+        backdrop-filter: blur(5px);
+        box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+        transition: all 0.3s ease;
+    }
+    .stButton>button:hover {
+        background-color: #FFD700;
+        color: #000000;
+        border-color: #000000;
+        transform: translateY(-2px);
+    }
+    
+    /* Pestañas */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 8px;
+        background-color: transparent;
+    }
+    .stTabs [data-baseweb="tab"] {
+        height: 55px;
+        background-color: rgba(31, 41, 55, 0.6);
+        border-radius: 12px 12px 0px 0px;
+        color: #ffffff;
+        padding-left: 15px;
+        padding-right: 15px;
+        backdrop-filter: blur(10px);
+        border: 1px solid rgba(255, 215, 0, 0.1);
+    }
+    .stTabs [aria-selected="true"] {
+        background-color: rgba(255, 215, 0, 0.9) !important;
+        color: #000000 !important;
+        font-weight: bold;
+    }
+
+    /* Tablas y Contenedores */
+    div[data-testid="stDataFrame"] {
+        background-color: rgba(31, 41, 55, 0.4);
+        border-radius: 15px;
+        padding: 10px;
+        backdrop-filter: blur(5px);
+    }
+
+    /* Adaptabilidad Móvil */
+    @media (max-width: 640px) {
+        .main-title {
+            font-size: 1.8rem !important;
+        }
+        [data-testid="stMetricValue"] {
+            font-size: 1.8rem !important;
+        }
+    }
+    </style>
+""", unsafe_allow_html=True)
+
+st.markdown('<h1 class="main-title">⛏️ Gold Tracker: La Ambición del Rey Enano</h1>', unsafe_allow_html=True)
+
+# 2. Conexión y Gestión de Datos
 conn = st.connection("gsheets", type=GSheetsConnection)
-df = conn.read(ttl=0)
 
-# Normalizamos nombres de columnas para evitar el error anterior
-if not df.empty:
-    df.columns = [c.strip().lower() for c in df.columns]
+def load_data():
+    try:
+        # Cargamos Resultados (juegos)
+        results = conn.read(worksheet="juegos", ttl=0)
+        # Cargamos Jugadores (jugadores)
+        players_df = conn.read(worksheet="jugadores", ttl=0)
+        
+        # Validación y limpieza básica
+        if results.empty:
+            results = pd.DataFrame(columns=['fecha', 'jugador', 'rol', 'pepitas'])
+        if players_df.empty:
+            players_df = pd.DataFrame(columns=['nombre'])
+            
+        return results, players_df
+    except Exception as e:
+        st.error(f"Error al conectar con Google Sheets: {e}")
+        return pd.DataFrame(columns=['fecha', 'jugador', 'rol', 'pepitas']), pd.DataFrame(columns=['nombre'])
+
+results_df, players_df = load_data()
+
+# Aseguramos que los nombres de los jugadores actuales estén cargados
+if not players_df.empty and 'nombre' in players_df.columns:
+    # Creamos un diccionario para mapear nombre -> emoji
+    emoji_map = dict(zip(players_df['nombre'], players_df['emoji'].fillna('👤')))
+    lista_jugadores = sorted(players_df['nombre'].tolist())
 else:
-    df = pd.DataFrame(columns=['fecha', 'jugador', 'rol', 'pepitas'])
+    emoji_map = {}
+    lista_jugadores = []
 
-# 2. Gestión de Jugadores (Base existente + nuevos)
-jugadores_habituales = ["Manu", "Emilia"] # Puedes agregar más fijos aquí
-if not df.empty:
-    jugadores_en_bd = df['jugador'].unique().tolist()
-    lista_jugadores = list(set(jugadores_habituales + jugadores_en_bd))
-else:
-    lista_jugadores = jugadores_habituales
+# 3. Navegación por Pestañas
+tab_rankings, tab_game, tab_players = st.tabs(["🏆 Ranking Semanal", "⛏️ Nueva Partida", "👥 Jugadores"])
 
-# 3. Interfaz de Entrada de Partida
-with st.form("nueva_partida"):
-    st.subheader("Registrar Partida")
+# --- TABLA DE RANKINGS ---
+with tab_rankings:
+    st.subheader("Mejores de la Semana")
     
-    col1, col2 = st.columns(2)
-    with col1:
-        fecha = st.date_input("Día", datetime.now())
-    with col2:
-        n_partida = st.number_input("N° de Partida", min_value=1, step=1)
-    
-    num_jugadores = st.slider("¿Cuántos jugaron?", 2, 10, 3)
-    
-    registros_partida = []
-    
-    st.divider()
-    
-    # Generamos campos dinámicos según el número de jugadores seleccionado
-    for i in range(num_jugadores):
-        st.markdown(f"**Jugador {i+1}**")
-        c1, c2, c3 = st.columns([2, 2, 1])
+    if not results_df.empty:
+        # Convertimos fecha de forma flexible
+        results_df['fecha'] = pd.to_datetime(results_df['fecha'], errors='coerce', format='mixed')
+        # Eliminamos filas donde la fecha no se pudo procesar
+        results_df = results_df.dropna(subset=['fecha'])
         
-        with c1:
-            modo_jugador = st.radio(f"Tipo J{i+1}", ["Existente", "Nuevo"], key=f"mode_{i}", horizontal=True)
-            if modo_jugador == "Existente":
-                nombre = st.selectbox(f"Nombre J{i+1}", lista_jugadores, key=f"select_{i}")
-            else:
-                nombre = st.text_input(f"Escribir J{i+1}", key=f"text_{i}")
+        # Filtro de Semana
+        semana_actual = datetime.now().isocalendar()[1]
+        results_df['semana'] = results_df['fecha'].dt.isocalendar().week
         
-        with c2:
-            rol = st.selectbox(f"Rol J{i+1}", ["Buscador", "Saboteador", "Perezoso", "Geólogo", "Aprovechado"], key=f"rol_{i}")
+        ranking_semanal = results_df[results_df['semana'] == semana_actual].groupby('jugador')['pepitas'].sum().sort_values(ascending=False).reset_index()
         
-        with c3:
-            puntos = st.number_input(f"Pepitas", min_value=0, max_value=10, step=1, key=f"puntos_{i}")
-        
-        if nombre:
-            registros_partida.append({
-                "fecha": fecha.strftime("%Y-%m-%d"),
-                "jugador": nombre,
-                "rol": rol,
-                "pepitas": puntos
-            })
-
-    submit = st.form_submit_button("💾 Guardar Resultados de la Partida")
-
-    if submit:
-        if len(registros_partida) > 0:
-            new_data = pd.DataFrame(registros_partida)
-            updated_df = pd.concat([df, new_data], ignore_index=True)
-            conn.update(data=updated_df)
-            st.success(f"¡Partida {n_partida} registrada exitosamente!")
-            st.rerun()
+        if not ranking_semanal.empty:
+            # Añadimos emojis al ranking
+            ranking_semanal['display_name'] = ranking_semanal['jugador'].apply(lambda x: f"{emoji_map.get(x, '👤')} {x}")
+            
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                st.metric("🥇 1er Lugar", f"{ranking_semanal.iloc[0]['display_name']}", f"{ranking_semanal.iloc[0]['pepitas']} 🪙")
+            if len(ranking_semanal) > 1:
+                with c2:
+                    st.metric("🥈 2do Lugar", f"{ranking_semanal.iloc[1]['display_name']}")
+            if len(ranking_semanal) > 2:
+                with c3:
+                    st.metric("🥉 3er Lugar", f"{ranking_semanal.iloc[2]['display_name']}")
+            
+            st.divider()
+            
+            col_chart, col_table = st.columns([2, 1])
+            with col_chart:
+                fig = px.bar(ranking_semanal, x='display_name', y='pepitas', 
+                             title="Acumulación de Oro Semanal",
+                             labels={'display_name': 'Jugador', 'pepitas': 'Oro'},
+                             color='pepitas', color_continuous_scale='Greens')
+                fig.update_layout(template="plotly_dark", plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)')
+                st.plotly_chart(fig, use_container_width=True)
+            
+            with col_table:
+                st.markdown("**Tabla General de la Semana**")
+                # Renombramos columnas para la vista del usuario
+                vista_tabla = ranking_semanal[['display_name', 'pepitas']].rename(
+                    columns={'display_name': 'Jugador', 'pepitas': 'Pepitas'}
+                )
+                st.dataframe(vista_tabla, hide_index=True)
         else:
-            st.error("Faltan datos de jugadores.")
-
-# 4. Ranking Semanal
-st.divider()
-st.subheader("🏆 Ranking de la Semana")
-
-if not df.empty and 'fecha' in df.columns:
-    df['fecha'] = pd.to_datetime(df['fecha'])
-    # Calcular semana actual
-    semana_actual = datetime.now().isocalendar()[1]
-    df['semana'] = df['fecha'].dt.isocalendar().week
-    
-    ranking = df[df['semana'] == semana_actual].groupby('jugador')['pepitas'].sum().sort_values(ascending=False).reset_index()
-    
-    if not ranking.empty:
-        st.dataframe(ranking, hide_index=True, use_container_width=True)
+            st.info("No se han registrado partidas esta semana.")
     else:
-        st.info("No hay datos para esta semana todavía.")
+        st.info("Base de datos de resultados vacía.")
+
+# --- NUEVA PARTIDA ---
+with tab_game:
+    st.subheader("Registrar una nueva partida")
+    
+    # Validación de Administrador
+    acceso_admin = st.text_input("🔑 Llave de la Mina (Admin)", type="password", key="pwd_game")
+    
+    if acceso_admin != st.secrets.get("admin_password", "admin123"):
+        st.warning("🔒 Esta sección está reservada para los Administradores de la Mina.")
+    elif len(lista_jugadores) < 3:
+        st.warning("Necesitas al menos 3 jugadores en la base de datos para registrar una partida.")
+    else:
+        col_header1, col_header2 = st.columns(2)
+        with col_header1:
+            fecha_juego = st.date_input("Fecha", datetime.now())
+        with col_header2:
+            num_jug = st.number_input("¿Cuántos jugaron hoy?", min_value=3, max_value=11, value=3)
+        
+        st.divider()
+        
+        with st.form("form_partida"):
+            registros_nuevos = []
+            
+            # Dinámicamente creamos filas para cada jugador
+            for i in range(num_jug):
+                st.markdown(f"**🔧 Jugador {i+1}**")
+                c1, c2, c3 = st.columns([2, 2, 1])
+                
+                with c1:
+                    # Mostramos Emoji + Nombre en el selector, empezando en vacío
+                    display_list = [f"{emoji_map.get(name, '👤')} {name}" for name in lista_jugadores]
+                    j_seleccionado_full = st.selectbox(
+                        f"Seleccionar Jugador", 
+                        display_list, 
+                        key=f"sel_{i}",
+                        index=None,
+                        placeholder="Elegir minero..."
+                    )
+                    # Extraemos solo el nombre real si no es None
+                    j_nombre = j_seleccionado_full.split(" ", 1)[1] if j_seleccionado_full else None
+                with c2:
+                    j_rol = st.selectbox(f"Rol", ["Buscador Azul", "Buscador Verde", "Jefe", "Vago", "Geo", "Saboteador"], key=f"rol_{i}")
+                with c3:
+                    j_pepitas = st.number_input(f"Pepitas", min_value=0, max_value=10, step=1, key=f"pts_{i}")
+                
+                if j_nombre:
+                    registros_nuevos.append({
+                        "fecha": fecha_juego.strftime("%Y-%m-%d"),
+                        "jugador": j_nombre,
+                        "rol": j_rol,
+                        "pepitas": j_pepitas
+                    })
+            
+            submit_btn = st.form_submit_button("💾 Guardar Partida")
+            
+            if submit_btn:
+                # Validar que todos los jugadores han sido seleccionados
+                if len(registros_nuevos) < num_jug:
+                    st.error("Por favor, selecciona a todos los jugadores antes de guardar.")
+                else:
+                    # Validar duplicados en la misma partida
+                    j_seleccionados = [r['jugador'] for r in registros_nuevos]
+                    if len(j_seleccionados) != len(set(j_seleccionados)):
+                        st.error("No puedes seleccionar el mismo jugador varias veces en una partida.")
+                    else:
+                        new_rows = pd.DataFrame(registros_nuevos)
+                        updated_results = pd.concat([results_df, new_rows], ignore_index=True)
+                        conn.update(worksheet="juegos", data=updated_results)
+                        st.success("¡Partida registrada exitosamente!")
+                        st.balloons()
+                        st.cache_data.clear()
+                        st.rerun()
+
+# --- JUGADORES ---
+with tab_players:
+    st.subheader("Gestión de Jugadores")
+    
+    # Validación de Administrador
+    acceso_admin_p = st.text_input("🔑 Llave de la Mina (Admin)", type="password", key="pwd_players")
+    
+    if acceso_admin_p != st.secrets.get("admin_password", "admin123"):
+        st.warning("🔒 Solo los Capataces pueden gestionar la lista de mineros.")
+    else:
+        with st.form("form_nuevo_jugador", clear_on_submit=True):
+            c1, c2 = st.columns(2)
+            with c1:
+                nuevo_nombre = st.text_input("Nombre Real (Ej: Juan)")
+                nuevo_alias = st.text_input("Alias (Ej: El Minero)")
+            with c2:
+                opciones_emoji = ["👤", "⚒️", "💎", "👺", "⛏️", "💰", "🧱", "💣", "🔦", "🗺️", "⚖️", "👷", "🕵️", "👑", "👻", "🐺"]
+                nuevo_emoji = st.selectbox("Elige tu Emoji", opciones_emoji)
+            
+            save_player = st.form_submit_button("➕ Añadir Jugador a la Mina")
+            
+            if save_player:
+                if nuevo_nombre.strip() == "":
+                    st.error("El nombre no puede estar vacío.")
+                elif nuevo_nombre in lista_jugadores:
+                    st.error("Ese jugador ya existe.")
+                else:
+                    new_p = pd.DataFrame([{
+                        "nombre": nuevo_nombre,
+                        "emoji": nuevo_emoji,
+                        "alias": nuevo_alias,
+                        "fechaIngreso": datetime.now().strftime("%Y-%m-%d")
+                    }])
+                    updated_players = pd.concat([players_df, new_p], ignore_index=True)
+                    conn.update(worksheet="jugadores", data=updated_players)
+                    st.success(f"¡{nuevo_nombre} ha sido añadido a la mina!")
+                    st.cache_data.clear()
+                    st.rerun()
+        
+        st.divider()
+        st.markdown("**Equipo de Mineros Actual:**")
+        if not players_df.empty:
+            st.dataframe(players_df[['emoji', 'nombre', 'alias', 'fechaIngreso']], hide_index=True, use_container_width=True)
+        else:
+            st.info("Aún no hay jugadores registrados.")
+        
+        # --- ELIMINAR JUGADOR (ZONA DE PELIGRO) ---
+        st.divider()
+        with st.expander("🚨 Zona de Peligro - Eliminar Jugador"):
+            if not lista_jugadores:
+                st.write("No hay jugadores para eliminar.")
+            else:
+                with st.form("form_eliminar_jugador"):
+                    jugador_a_borrar = st.selectbox("Selecciona el jugador a eliminar de la mina", lista_jugadores)
+                    confirmar = st.checkbox("Confirmo que quiero eliminar a este jugador para siempre")
+                    btn_borrar = st.form_submit_button("🗑️ Eliminar Definitivamente")
+                    
+                    if btn_borrar:
+                        if not confirmar:
+                            st.warning("Por favor, marca la casilla de confirmación.")
+                        else:
+                            # Filtramos el dataframe para quitar al jugador
+                            updated_players = players_df[players_df['nombre'] != jugador_a_borrar]
+                            conn.update(worksheet="jugadores", data=updated_players)
+                            st.success(f"¡{jugador_a_borrar} ha sido expulsado de la mina!")
+                            st.cache_data.clear()
+                            st.rerun()
