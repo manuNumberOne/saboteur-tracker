@@ -25,10 +25,10 @@ with st.expander("📝 Registrar Nueva Partida"):
 
         if submit:
             new_row = pd.DataFrame([{
-                "Fecha": fecha.strftime("%Y-%m-%d"),
-                "Jugador": jugador,
-                "Rol": rol,
-                "Pepitas": pepitas
+                "fecha": fecha.strftime("%Y-%m-%d"),
+                "jugador": jugador,
+                "rol": rol,
+                "pepitas": pepitas
             }])
             # Concatenar y actualizar
             updated_df = pd.concat([df, new_row], ignore_index=True)
@@ -40,7 +40,7 @@ with st.expander("📝 Registrar Nueva Partida"):
 st.subheader("📊 Ranking de la Semana")
 
 if not df.empty:
-    df['Fecha'] = pd.to_datetime(df['Fecha'])
+    df['fecha'] = pd.to_datetime(df['fecha'])
     # Calcular inicio de semana (Lunes)
     df['Semana'] = df['Fecha'].dt.isocalendar().week
     current_week = datetime.now().isocalendar()[1]
